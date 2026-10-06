@@ -1,8 +1,8 @@
-# Netlify Configuration for Acadly (ai_chatbot subdirectory)
+# Netlify Configuration for smartAI Flutter Web
 
 [build]
   publish = "build/web"
-  command = "flutter build web --release"
+  command = "if [ ! -d \"flutter\" ]; then git clone https://github.com/flutter/flutter.git -b stable --depth 1; fi && export PATH=\"$PATH:`pwd`/flutter/bin\" && flutter config --enable-web && flutter build web --release"
 
 [[redirects]]
   from = "/*"
