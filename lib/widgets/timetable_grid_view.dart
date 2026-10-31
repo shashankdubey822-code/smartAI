@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../models/models.dart';
+import 'package:provider/provider.dart';
+import '../services/timetable_sync_service.dart';
 import '../utils/file_opener.dart';
 import '../utils/mru_timetable_data.dart';
 import 'timetable_sync_dialog.dart';
@@ -74,6 +76,9 @@ class _TimetableViewerDialogState extends State<TimetableViewerDialog> {
 
   @override
   Widget build(BuildContext context) {
+    context.watch<TimetableSyncService>();
+    _studentSchedule = MRUTimetableRepository.getClassSchedule(_lockedSection);
+    _teacherSchedule = MRUTimetableRepository.getTeacherSchedule(_assignedTeacher);
     final screenWidth = MediaQuery.of(context).size.width;
     final isMobile = screenWidth < 700;
 

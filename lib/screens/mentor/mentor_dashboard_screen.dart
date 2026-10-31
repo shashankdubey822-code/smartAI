@@ -19,6 +19,7 @@ import '../../utils/file_opener.dart';
 import '../../widgets/document_viewer_dialog.dart';
 import '../../widgets/timetable_grid_view.dart';
 import '../../widgets/timetable_sync_dialog.dart';
+import '../../widgets/background_sync_indicator.dart';
 import '../../widgets/teacher_selector_dialog.dart';
 import '../../utils/mru_timetable_data.dart';
 import '../../utils/academic_session_utils.dart';
@@ -213,18 +214,28 @@ class _MentorDashboardScreenState extends State<MentorDashboardScreen>
 
     return Scaffold(
       backgroundColor: const Color(0xFFF0F4FF),
-      body: Column(children: [
-        _buildHeader(auth, chat, openIssues),
-        _buildTabBar(chat, openIssues),
-        Expanded(
-            child: TabBarView(controller: _tab, children: [
-          _classTab(chat),
-          _documentsTab(auth),
-          _issuesTab(auth),
-          _progressTab(chat),
-          _aiChatTab(),
-        ])),
-      ]),
+      body: Stack(
+        children: [
+          Column(children: [
+            _buildHeader(auth, chat, openIssues),
+            _buildTabBar(chat, openIssues),
+            Expanded(
+                child: TabBarView(controller: _tab, children: [
+              _classTab(chat),
+              _documentsTab(auth),
+              _issuesTab(auth),
+              _progressTab(chat),
+              _aiChatTab(),
+            ])),
+          ]),
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: BackgroundSyncIndicator(isTop: true),
+          ),
+        ],
+      ),
     );
   }
 

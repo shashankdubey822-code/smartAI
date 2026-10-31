@@ -1,6 +1,8 @@
 // lib/utils/mru_timetable_data.dart
 // Auto-synchronized directly from official Manav Rachna University Timetable (mru.edupage.org)
 import 'package:intl/intl.dart';
+import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class TimetablePeriodSlot {
@@ -84993,6 +84995,71 @@ class MRUTimetableRepository {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('mru_saved_selected_teacher', teacherName);
+    } catch (_) {}
+  }
+  // ── LIVE DYNAMIC CACHE STORAGE ──────────────────────────
+  static final Map<String, dynamic> _dynamicClassOverrides = {};
+
+  /// Injects live synchronized timetable payload into the in-memory repository
+  /// and updates SharedPreferences so future app loads display the newly synced timetable.
+  static Future<void> applyLiveClassSchedule(String section, Map<String, dynamic> scheduleData) async {
+    final cleanSection = section.trim();
+    
+    // Normalize schedule payload to ensure standard structure
+    // If wrapped in 'schedule' or 'days', extract the day map
+    Map<String, dynamic> dayMap = {};
+    if (scheduleData.containsKey('schedule') && scheduleData['schedule'] is Map) {
+      dayMap = Map<String, dynamic>.from(scheduleData['schedule']);
+    } else if (scheduleData.containsKey('days') && scheduleData['days'] is Map) {
+      dayMap = Map<String, dynamic>.from(scheduleData['days']);
+    } else {
+      dayMap = scheduleData;
+    }
+
+    // Convert full day names (Monday, Tuesday...) to short keys (Mo, Tu...) if necessary
+    final normalized = <String, dynamic>{};
+    final dayKeyMap = {
+      'Monday': 'Mo', 'Mo': 'Mo',
+      'Tuesday': 'Tu', 'Tu': 'Tu',
+      'Wednesday': 'We', 'We': 'We',
+      'Thursday': 'Th', 'Th': 'Th',
+      'Friday': 'Fr', 'Fr': 'Fr',
+    };
+
+    dayMap.forEach((k, v) {
+      final shortKey = dayKeyMap[k] ?? k;
+      if (days.contains(shortKey)) {
+        normalized[shortKey] = v;
+      }
+    });
+
+    _dynamicClassOverrides[cleanSection] = normalized;
+    rawClassData[cleanSection] = normalized;
+
+    // Cache locally to SharedPreferences for instant reload across restarts
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('mru_live_sched_$cleanSection', jsonEncode(normalized));
+    } catch (e) {
+      debugPrint('⚠️ Error caching live schedule to SharedPreferences: ');
+    }
+  }
+
+  /// Restores any previously synchronized schedules from local storage.
+  static Future<void> restoreLiveOverrides() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      for (final key in prefs.getKeys()) {
+        if (key.startsWith('mru_live_sched_')) {
+          final sec = key.replaceFirst('mru_live_sched_', '');
+          final rawJson = prefs.getString(key);
+          if (rawJson != null) {
+            final parsed = jsonDecode(rawJson) as Map<String, dynamic>;
+            _dynamicClassOverrides[sec] = parsed;
+            rawClassData[sec] = parsed;
+          }
+        }
+      }
     } catch (_) {}
   }
 }

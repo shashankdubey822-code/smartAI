@@ -697,7 +697,6 @@ class SupabaseService {
     try {
       final updateData = <String, dynamic>{
         'ocr_status': status,
-        'updated_at': DateTime.now().toIso8601String(),
       };
       if (progress != null) {
         updateData['ocr_progress'] = progress;
@@ -1384,4 +1383,74 @@ class SupabaseService {
       return [];
     }
   }
-}
+
+  // ══════════════════════════════════════════════════════════
+  // TIMETABLE LIVE SYNCHRONIZATION & CACHE
+  // ══════════════════════════════════════════════════════════
+
+  /// Invokes the `sync-timetable` Supabase Edge Function to fetch live timetable for a section.
+  static Future<Map<String, dynamic>?> fetchLiveTimetable(String section) async {
+    final cleanSection = section.trim();
+    try {
+      final res = await _db.functions.invoke(
+        'sync-timetable',
+        body: {'section': cleanSection},
+      ).timeout(const Duration(seconds: 25));
+
+      if (res.status == 200 && res.data != null) {
+        final data = res.data is Map<String, dynamic>
+            ? res.data as Map<String, dynamic>
+            : jsonDecode(res.data.toString()) as Map<String, dynamic>;
+
+        // Cache the result into timetable_cache table if available
+        if (data.containsKey('schedule') || data.containsKey('schedule_data')) {
+          final scheduleMap = (data['schedule'] ?? data['schedule_data']) as Map<String, dynamic>;
+          final slotCount = (data['slot_count'] ?? data['slots'] ?? 0) as int;
+          await saveTimetableCache(cleanSection, scheduleMap, slotCount: slotCount);
+        }
+
+        return data;
+      }
+      debugPrint('⚠️ fetchLiveTimetable status: ${res.status}');
+      return null;
+    } catch (e) {
+      debugPrint('⚠️ fetchLiveTimetable error (edge function offline or failed): $e');
+      return null;
+    }
+  }
+
+  /// Retrieves stored timetable cache from `timetable_cache` table in Supabase.
+  static Future<Map<String, dynamic>?> getStoredTimetableCache(String section) async {
+    final cleanSection = section.trim();
+    try {
+      final row = await _db
+          .from('timetable_cache')
+          .select()
+          .ilike('section', cleanSection)
+          .maybeSingle();
+      return row;
+    } catch (e) {
+      debugPrint('⚠️ getStoredTimetableCache failed: $e');
+      return null;
+    }
+  }
+
+  /// Saves or updates the timetable cache in Supabase `timetable_cache` table.
+  static Future<void> saveTimetableCache(
+    String section,
+    Map<String, dynamic> scheduleData, {
+    int slotCount = 0,
+  }) async {
+    final cleanSection = section.trim();
+    try {
+      await _db.from('timetable_cache').upsert({
+        'section': cleanSection,
+        'schedule_data': scheduleData,
+        'slot_count': slotCount,
+        'last_synced_at': DateTime.now().toIso8601String(),
+      }, onConflict: 'section');
+    } catch (e) {
+      debugPrint('⚠️ saveTimetableCache failed (non-fatal): $e');
+    }
+  }
+}

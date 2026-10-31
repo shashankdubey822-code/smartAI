@@ -7,10 +7,13 @@ import '../../models/models.dart';
 import '../../services/auth_provider.dart';
 import '../../services/chat_provider.dart';
 import '../../utils/app_theme.dart';
+import '../../widgets/background_sync_indicator.dart';
 import '../auth_screen.dart';
 import 'student_chat_screen.dart';
 import 'student_documents_screen.dart';
 import 'student_issue_screen.dart';
+import '../../debug/debug_inspector_dialog.dart';
+import '../../debug/debug_telemetry_manager.dart';
 
 class StudentHomeScreen extends StatefulWidget {
   const StudentHomeScreen({super.key});
@@ -123,16 +126,26 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
       backgroundColor: const Color(0xFFF3F5FB),
       // ── LEFT DRAWER — Chat History ─────────────────────────
       drawer: _buildDrawer(auth, chat),
-      body: Column(children: [
-        _buildHeader(auth, chat),
-        _buildTabBar(chat),
-        Expanded(
-            child: TabBarView(controller: _tab, children: [
-          _aiChatTab(chat),
-          const StudentDocumentsScreen(),
-          const StudentIssueScreen(),
-        ])),
-      ]),
+      body: Stack(
+        children: [
+          Column(children: [
+            _buildHeader(auth, chat),
+            _buildTabBar(chat),
+            Expanded(
+                child: TabBarView(controller: _tab, children: [
+              _aiChatTab(chat),
+              const StudentDocumentsScreen(),
+              const StudentIssueScreen(),
+            ])),
+          ]),
+          const Positioned(
+            top: 0,
+            left: 0,
+            right: 0,
+            child: BackgroundSyncIndicator(isTop: true),
+          ),
+        ],
+      ),
       floatingActionButton: _tab.index == 0 ? _buildFAB() : null,
     );
   }
@@ -498,6 +511,51 @@ class _StudentHomeScreenState extends State<StudentHomeScreen>
                       overflow: TextOverflow.ellipsis),
                 ],
               )),
+              // Debug Telemetry Button
+              InkWell(
+                onTap: () => DebugInspectorDialog.show(context),
+                borderRadius: BorderRadius.circular(12),
+                child: AnimatedBuilder(
+                  animation: DebugTelemetryManager.instance,
+                  builder: (context, _) {
+                    final mgr = DebugTelemetryManager.instance;
+                    final hasTurns = mgr.turns.isNotEmpty;
+                    return Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: hasTurns
+                            ? const Color(0xFF0284C7).withOpacity(0.3)
+                            : Colors.white.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: hasTurns
+                              ? const Color(0xFF38BDF8)
+                              : Colors.white.withOpacity(0.2),
+                          width: hasTurns ? 1.5 : 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.bug_report_rounded,
+                              color: Color(0xFF38BDF8), size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            hasTurns ? 'Debug (${mgr.turns.length})' : 'Debug',
+                            style: GoogleFonts.lato(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(width: 10),
               // Avatar
               Container(
                 width: 42,

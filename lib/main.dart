@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'services/auth_provider.dart';
 import 'services/chat_provider.dart';
 import 'services/document_queue_service.dart';
+import 'services/timetable_sync_service.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_theme.dart';
 import 'utils/constants.dart';
@@ -15,6 +16,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await MRUTimetableRepository.initSyncTime();
+  await MRUTimetableRepository.restoreLiveOverrides();
 
   await Supabase.initialize(
     url: kSupabaseUrl,
@@ -34,6 +36,7 @@ class AiChatBotApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => ChatProvider()),
         ChangeNotifierProvider(create: (_) => DocumentQueueService()),
+        ChangeNotifierProvider(create: (_) => TimetableSyncService()),
       ],
       child: MaterialApp(
         title: kAppName,

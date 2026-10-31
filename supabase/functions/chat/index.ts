@@ -6,6 +6,63 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-gemini-task',
 }
 
+// ── Gemini ReAct Agent Tool Declarations ────────────────────
+const AGENT_TOOLS = [
+  {
+    functionDeclarations: [
+      {
+        name: "get_enrolled_courses",
+        description: "Fetch registered academic courses for a student for the current semester from institutional records.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            roll_number: { type: "STRING", description: "Student's college roll number" },
+            semester: { type: "STRING", description: "Current semester (e.g. '3', '5')" }
+          },
+          required: ["roll_number"]
+        }
+      },
+      {
+        name: "search_exam_questions",
+        description: "Search previous year university examination papers (2-5 years) for recurring questions, marks, and topics in a specific course.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            subject: { type: "STRING", description: "Course or subject name (e.g. Calculus, Python, DBMS, Operating Systems)" },
+            topic: { type: "STRING", description: "Specific topic or concept keyword (e.g. Normalization, Recursion, Paging, Deadlock)" },
+            year: { type: "STRING", description: "Optional academic year or session" },
+            limit: { type: "INTEGER", description: "Max questions to return (default 5)" }
+          },
+          required: ["subject"]
+        }
+      },
+      {
+        name: "get_attendance_summary",
+        description: "Retrieve official student attendance percentage, defaulter warnings, and subject eligibility.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            roll_number: { type: "STRING", description: "Student's roll number" }
+          },
+          required: ["roll_number"]
+        }
+      },
+      {
+        name: "get_curated_resources",
+        description: "Get verified academic resources, video playlists (NPTEL, Gate Smashers, MIT OCW), and syllabus cheat-sheets for a topic.",
+        parameters: {
+          type: "OBJECT",
+          properties: {
+            subject: { type: "STRING", description: "Subject or course name" },
+            topic: { type: "STRING", description: "Topic to fetch high-yield study resources for" }
+          },
+          required: ["subject"]
+        }
+      }
+    ]
+  }
+];
+
 // ── LangSmith Tracing Helper ─────────────────────────────────
 async function sendLangSmithTrace(data: {
   name: string;
@@ -43,7 +100,6 @@ async function sendLangSmithTrace(data: {
       },
     };
 
-    // Non-blocking telemetry post to LangSmith
     fetch(`${endpoint}/runs`, {
       method: "POST",
       headers: {
@@ -53,13 +109,11 @@ async function sendLangSmithTrace(data: {
       body: JSON.stringify(payload),
     }).catch((err) => console.error("LangSmith Telemetry error:", err));
   } catch (err) {
-    // Fail silently so LLM execution is never affected
     console.error("LangSmith logging error:", err);
   }
 }
 
 serve(async (req: Request) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
@@ -67,14 +121,10 @@ serve(async (req: Request) => {
   const startTime = Date.now();
 
   try {
-    // Parse the full body once
     const body = await req.json() as any;
-    const { message, contents, systemPrompt, model, generationConfig, safetySettings, content, requests, taskType } = body;
+    const { message, contents, systemPrompt, model, generationConfig, safetySettings, content, requests, taskType, enableTools } = body;
 
-    // Retrieve API Keys from environment
-    // @ts-ignore
     const apiKeyString = Deno.env.get("GEMINI_API_KEYS") || Deno.env.get("GEMINI_API_KEY") || Deno.env.get("API_KEY") || "";
-    // @ts-ignore
     const apiKeys = apiKeyString.split(',').map((k: string) => k.trim()).filter((k: string) => k.length > 0);
 
     if (apiKeys.length === 0) {
@@ -84,27 +134,27 @@ serve(async (req: Request) => {
       )
     }
 
-    // 1. Simple request handling
     if (message && !contents) {
       return await handleSimpleChat(message, apiKeys, startTime);
     }
 
-    // 2. Full application request handling
-    const selectedModel = model || "gemini-flash-latest";
+    const selectedModel = model || "gemini-3.5-flash";
     const task = req.headers.get("x-gemini-task") || "generateContent";
 
-    // Build payload based on task type
     let payload: any;
 
     if (task === "generateContent") {
       const defaultGenConfig = {
         maxOutputTokens: 8192,
-        temperature: 0.2,
+        temperature: 0.4,
         topP: 0.9,
       };
+
+      // ReAct Agent: Inject dynamic tools for intelligent reasoning without hardcoded routers
       payload = {
         system_instruction: systemPrompt ? { parts: [{ text: systemPrompt }] } : undefined,
         contents: contents,
+        tools: (enableTools !== false) ? AGENT_TOOLS : undefined,
         generationConfig: generationConfig ? { ...defaultGenConfig, ...generationConfig } : defaultGenConfig,
         safetySettings: safetySettings || [
           { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_ONLY_HIGH' },
@@ -120,7 +170,6 @@ serve(async (req: Request) => {
         outputDimensionality: body.outputDimensionality || 768,
       };
     } else if (task === "batchEmbedContents") {
-      // Ensure all batch requests have outputDimensionality set to 768 if not already provided
       const formattedRequests = (requests || []).map((r: any) => ({
         ...r,
         outputDimensionality: r.outputDimensionality || 768,
@@ -153,18 +202,22 @@ serve(async (req: Request) => {
 })
 
 /**
- * Handle simple user message -> response
+ * Fast direct response for greetings/simple single messages
  */
 async function handleSimpleChat(message: string, apiKeys: string[], startTime: number) {
   const payload = {
     contents: [{ role: 'user', parts: [{ text: message }] }]
   };
-  const res = await callGeminiWithRetry("gemini-flash-latest", "generateContent", payload, apiKeys, 0, startTime);
+  const res = await callGeminiWithRetry("gemini-3.5-flash", "generateContent", payload, apiKeys, 0, startTime);
   const data = await res.clone().json() as any;
   
   if (data.candidates && data.candidates[0]?.content?.parts[0]?.text) {
     return new Response(
-      JSON.stringify({ reply: data.candidates[0].content.parts[0].text }),
+      JSON.stringify({ 
+        reply: data.candidates[0].content.parts[0].text,
+        candidates: data.candidates,
+        usageMetadata: data.usageMetadata 
+      }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 }
     );
   }
@@ -184,7 +237,6 @@ async function callGeminiWithRetry(
   startTime = Date.now()
 ): Promise<Response> {
   const apiKey = apiKeys[attempt % apiKeys.length];
-  // Map older/restricted models to rock-solid stable endpoints automatically
   let actualModel = model;
   if (model === "gemini-2.5-flash" || model === "gemini-2.5-flash-lite" || model === "gemini-flash-latest") {
     actualModel = "gemini-3.5-flash";
@@ -200,7 +252,6 @@ async function callGeminiWithRetry(
     body: JSON.stringify(payload),
   });
 
-  // If 503 (overloaded) or 404 (unavailable model), fallback to gemini-3.1-flash-lite or retry with key
   if (response.status === 503 && actualModel !== "gemini-3.1-flash-lite") {
     console.log(`Model ${actualModel} hit 503. Falling back to gemini-3.1-flash-lite...`);
     return callGeminiWithRetry("gemini-3.1-flash-lite", task, payload, apiKeys, attempt, startTime);
@@ -214,9 +265,8 @@ async function callGeminiWithRetry(
   const responseData = await response.json();
   const endTime = Date.now();
 
-  // Send execution trace to LangSmith asynchronously
   sendLangSmithTrace({
-    name: task === "generateContent" ? `Gemini:${model}` : `Embedding:${task}`,
+    name: task === "generateContent" ? `Gemini:ReAct:${model}` : `Embedding:${task}`,
     runType: task.includes("embed") ? "embedding" : "llm",
     inputs: payload,
     outputs: responseData,
@@ -239,4 +289,3 @@ async function callGeminiWithRetry(
     }
   );
 }
-

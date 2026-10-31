@@ -12,6 +12,8 @@ import '../../services/supabase_service.dart';
 import '../../utils/app_theme.dart';
 import '../../widgets/chat_interactive_options.dart';
 import '../../widgets/typing_dots_indicator.dart';
+import '../../debug/debug_inspector_dialog.dart';
+import '../../debug/debug_telemetry_manager.dart';
 
 class StudentChatScreen extends StatefulWidget {
   const StudentChatScreen({super.key});
@@ -197,32 +199,58 @@ class _StudentChatScreenState extends State<StudentChatScreen>
         )),
       ]),
       actions: [
-        // Verified Docs count badge
-        if (_availableDocs.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: Center(
-              child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.25)),
-                ),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  const Icon(Icons.verified_rounded,
-                      color: AppTheme.accent, size: 14),
-                  const SizedBox(width: 4),
-                  Text('${_availableDocs.length} Verified',
-                      style: GoogleFonts.lato(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white)),
-                ]),
+        // Debug Telemetry Inspector Action Button (Replaced Verified Docs badge)
+        Padding(
+          padding: const EdgeInsets.only(right: 12),
+          child: Center(
+            child: InkWell(
+              onTap: () => DebugInspectorDialog.show(context),
+              borderRadius: BorderRadius.circular(20),
+              child: AnimatedBuilder(
+                animation: DebugTelemetryManager.instance,
+                builder: (context, _) {
+                  final mgr = DebugTelemetryManager.instance;
+                  final hasTurns = mgr.turns.isNotEmpty;
+                  return Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: hasTurns
+                          ? const Color(0xFF0284C7).withOpacity(0.25)
+                          : Colors.white.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: hasTurns
+                            ? const Color(0xFF38BDF8)
+                            : Colors.white.withOpacity(0.25),
+                        width: hasTurns ? 1.5 : 1.0,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.bug_report_rounded,
+                          color: Color(0xFF38BDF8),
+                          size: 14,
+                        ),
+                        const SizedBox(width: 5),
+                        Text(
+                          hasTurns ? 'Debug (${mgr.turns.length})' : 'Debug',
+                          style: GoogleFonts.lato(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
               ),
             ),
           ),
+        ),
       ],
     );
   }

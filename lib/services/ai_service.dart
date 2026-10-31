@@ -5,6 +5,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/models.dart';
 import '../utils/constants.dart';
 import '../utils/ai_config.dart';
+import '../debug/debug_telemetry_manager.dart';
+import '../debug/debug_telemetry_model.dart';
 import 'document_json_schemas.dart';
 
 class AIService {
@@ -435,6 +437,54 @@ class AIService {
         );
 
         final data = jsonDecode(res.body);
+
+        // Record telemetry if usageMetadata is returned
+        if (data is Map<String, dynamic>) {
+          final usageMap = data['usageMetadata'] as Map<String, dynamic>?;
+          if (usageMap != null) {
+            final usage = GeminiUsageMetadata.fromMap(usageMap, modelName: model);
+            String userMsgPart = '';
+            if (contents.isNotEmpty) {
+              final lastTurn = contents.last;
+              final parts = lastTurn['parts'] as List?;
+              if (parts != null && parts.isNotEmpty) {
+                userMsgPart = (parts.first['text'] ?? '').toString();
+              }
+            }
+            final replyText = data['candidates']?[0]['content']?['parts']?[0]['text'] ?? '';
+            DebugTelemetryManager.instance.recordTurn(
+              userMessage: userMsgPart,
+              aiResponse: replyText.toString(),
+              usage: usage,
+            );
+          } else {
+            // Heuristic token calculation fallback if backend proxy does not include usageMetadata
+            final promptText = systemPrompt + (contents.map((c) => (c['parts'] as List?)?.map((p) => p['text']).join(' ') ?? '').join(' '));
+            final replyText = data['candidates']?[0]['content']?['parts']?[0]['text'] as String? ?? '';
+            final approxPromptTokens = (promptText.length / 4).ceil();
+            final approxCandidateTokens = (replyText.length / 4).ceil();
+            final usage = GeminiUsageMetadata.fromMap({
+              'promptTokenCount': approxPromptTokens,
+              'candidatesTokenCount': approxCandidateTokens,
+              'totalTokenCount': approxPromptTokens + approxCandidateTokens,
+              'thoughtsTokenCount': 0,
+            }, modelName: model);
+            String userMsgPart = '';
+            if (contents.isNotEmpty) {
+              final lastTurn = contents.last;
+              final parts = lastTurn['parts'] as List?;
+              if (parts != null && parts.isNotEmpty) {
+                userMsgPart = (parts.first['text'] ?? '').toString();
+              }
+            }
+            DebugTelemetryManager.instance.recordTurn(
+              userMessage: userMsgPart,
+              aiResponse: replyText,
+              usage: usage,
+            );
+          }
+        }
+
         final text =
             data['candidates']?[0]['content']?['parts']?[0]['text'] as String?;
         if (text != null && text.trim().isNotEmpty) {
